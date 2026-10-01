@@ -3,10 +3,13 @@ package cl.duoc.dsy1107.pedidosapi.service;
 import cl.duoc.dsy1107.pedidosapi.domain.*;
 import cl.duoc.dsy1107.pedidosapi.dto.CrearPedidoRequest;
 import cl.duoc.dsy1107.pedidosapi.dto.ItemRequest;
+import cl.duoc.dsy1107.pedidosapi.messaging.PedidoEvento;
+import cl.duoc.dsy1107.pedidosapi.messaging.PedidoEventoProducer;
 import cl.duoc.dsy1107.pedidosapi.repository.PedidoRepository;
 import cl.duoc.dsy1107.pedidosapi.repository.ProductoRepository;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -16,6 +19,7 @@ public class PedidoService {
 
     private final PedidoRepository pedidoRepository;
     private final ProductoRepository productoRepository;
+    private final PedidoEventoProducer eventoProducer;
 
     // Mapa de transiciones válidas: desde cada estado, a qué estados se puede avanzar.
     private static final Map<EstadoPedido, Set<EstadoPedido>> TRANSICIONES = Map.of(
@@ -27,9 +31,11 @@ public class PedidoService {
         EstadoPedido.CANCELADO,      Set.of()
     );
 
-    public PedidoService(PedidoRepository pedidoRepository, ProductoRepository productoRepository) {
+    public PedidoService(PedidoRepository pedidoRepository, ProductoRepository productoRepository,
+                          PedidoEventoProducer eventoProducer) {
         this.pedidoRepository = pedidoRepository;
         this.productoRepository = productoRepository;
+        this.eventoProducer = eventoProducer;
     }
 
     public Pedido crear(String clienteId, CrearPedidoRequest request) {
@@ -43,7 +49,9 @@ public class PedidoService {
             pedido.agregarItem(item);
         }
 
-        return pedidoRepository.save(pedido);
+        Pedido guardado = pedidoRepository.save(pedido);
+        publicarEvento("pedido.creado", guardado);
+        return guardado;
     }
 
     // Cliente ve solo lo suyo; Operador/Admin ven todo.
@@ -93,6 +101,25 @@ public class PedidoService {
         }
 
         pedido.setEstado(nuevoEstado);
-        return pedidoRepository.save(pedido);
+        Pedido guardado = pedidoRepository.save(pedido);
+
+        // Publicar evento solo para los estados relevantes para notificaciones/cocina/despacho.
+        if (nuevoEstado == EstadoPedido.ACEPTADO) {
+            publicarEvento("pedido.aceptado", guardado);
+        } else if (nuevoEstado == EstadoPedido.DESPACHADO) {
+            publicarEvento("pedido.despachado", guardado);
+        }
+
+        return guardado;
+    }
+
+    private void publicarEvento(String routingKey, Pedido pedido) {
+        PedidoEvento evento = new PedidoEvento(
+            pedido.getId(),
+            pedido.getEstado().name(),
+            pedido.getClienteId(),
+            LocalDateTime.now()
+        );
+        eventoProducer.publicar(routingKey, evento);
     }
 }
