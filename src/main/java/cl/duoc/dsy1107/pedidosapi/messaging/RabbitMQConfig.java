@@ -17,17 +17,26 @@ public class RabbitMQConfig {
     public static final String COCINA = "cocina.queue";
     public static final String DESPACHO = "despacho.queue";
 
-    // ===== Confiabilidad: DLX + reintentos con TTL + DLQ (aplicado a COCINA) =====
+    // ===== Confiabilidad: DLX compartida + reintentos con TTL + DLQ por cola =====
     public static final String DLX = "pedidos360.dlx";
+    private static final int RETRY_TTL_MS = 5000;
+
+    public static final String NOTIFICACIONES_RETRY_ROUTING_KEY = "notificaciones.retry";
+    public static final String NOTIFICACIONES_RETRY_QUEUE = "notificaciones.retry.queue";
+    public static final String NOTIFICACIONES_DLQ = "notificaciones.dlq";
+
     public static final String COCINA_RETRY_ROUTING_KEY = "cocina.retry";
     public static final String COCINA_RETRY_QUEUE = "cocina.retry.queue";
     public static final String COCINA_DLQ = "cocina.dlq";
-    private static final int RETRY_TTL_MS = 5000;
+
+    public static final String DESPACHO_RETRY_ROUTING_KEY = "despacho.retry";
+    public static final String DESPACHO_RETRY_QUEUE = "despacho.retry.queue";
+    public static final String DESPACHO_DLQ = "despacho.dlq";
 
     // ===== Topic Exchange: una sola cola de auditoría para TODOS los eventos =====
     public static final String TOPIC_EXCHANGE = "pedidos360.topic.exchange";
     public static final String AUDITORIA = "auditoria.queue";
-    // "pedido.*" matchea pedido.creado / pedido.aceptado / pedido.despachado
+    // "pedido.*" matchea pedido.creado / pedido.aceptado / pedido.despachado / pedido.cancelado
     // (un solo segmento después de "pedido."). NO matchearía algo como
     // "pedido.item.agregado" (dos segmentos) — para eso haría falta "pedido.#".
     public static final String AUDITORIA_PATTERN = "pedido.*";
@@ -37,13 +46,18 @@ public class RabbitMQConfig {
         return new DirectExchange(EXCHANGE, true, false);
     }
 
+    // Cada cola de negocio declara, con argumentos, a dónde va un mensaje
+    // cuando el consumer lo rechaza (NACK): a la DLX, con una routing key de
+    // retry propia de su dominio (así cada una cae en SU cola de espera).
+
     @Bean
     Queue notificacionesQueue() {
-        return new Queue(NOTIFICACIONES, true);
+        return QueueBuilder.durable(NOTIFICACIONES)
+            .withArgument("x-dead-letter-exchange", DLX)
+            .withArgument("x-dead-letter-routing-key", NOTIFICACIONES_RETRY_ROUTING_KEY)
+            .build();
     }
 
-    // Antes era "new Queue(COCINA, true)". Ahora declara a dónde va un mensaje
-    // cuando el consumer lo rechaza (NACK): a la DLX, con routing key "cocina.retry".
     @Bean
     Queue cocinaQueue() {
         return QueueBuilder.durable(COCINA)
@@ -54,7 +68,10 @@ public class RabbitMQConfig {
 
     @Bean
     Queue despachoQueue() {
-        return new Queue(DESPACHO, true);
+        return QueueBuilder.durable(DESPACHO)
+            .withArgument("x-dead-letter-exchange", DLX)
+            .withArgument("x-dead-letter-routing-key", DESPACHO_RETRY_ROUTING_KEY)
+            .build();
     }
 
     @Bean
@@ -82,23 +99,47 @@ public class RabbitMQConfig {
         return BindingBuilder.bind(despachoQueue).to(pedidosExchange).with("pedido.despachado");
     }
 
-    // ===== Piezas de confiabilidad: DLX, cola de reintento (con TTL) y DLQ final =====
+    // ===== DLX compartida =====
 
     @Bean
     DirectExchange dlx() {
         return new DirectExchange(DLX, true, false);
     }
 
-    // Cola "de espera": nadie la consume. Cuando un mensaje lleva 5s aquí (TTL),
-    // RabbitMQ lo expulsa automáticamente y, por su propia dead-letter-config,
-    // lo devuelve al exchange original con la routing key original -> vuelve a cocina.queue.
+    // ===== Colas de espera (retry, con TTL) =====
+    // Nadie las consume. Cuando un mensaje lleva 5s ahí, RabbitMQ lo expulsa
+    // automáticamente (TTL) y, por su propia dead-letter-config, lo devuelve
+    // al exchange original. Como NO fijamos "x-dead-letter-routing-key" aquí,
+    // RabbitMQ reutiliza la routing key ORIGINAL del mensaje (necesario para
+    // notificaciones.queue, que recibe 3 routing keys distintas).
+
+    @Bean
+    Queue notificacionesRetryQueue() {
+        return QueueBuilder.durable(NOTIFICACIONES_RETRY_QUEUE)
+            .withArgument("x-message-ttl", RETRY_TTL_MS)
+            .withArgument("x-dead-letter-exchange", EXCHANGE)
+            .build();
+    }
+
     @Bean
     Queue cocinaRetryQueue() {
         return QueueBuilder.durable(COCINA_RETRY_QUEUE)
             .withArgument("x-message-ttl", RETRY_TTL_MS)
             .withArgument("x-dead-letter-exchange", EXCHANGE)
-            .withArgument("x-dead-letter-routing-key", "pedido.aceptado")
             .build();
+    }
+
+    @Bean
+    Queue despachoRetryQueue() {
+        return QueueBuilder.durable(DESPACHO_RETRY_QUEUE)
+            .withArgument("x-message-ttl", RETRY_TTL_MS)
+            .withArgument("x-dead-letter-exchange", EXCHANGE)
+            .build();
+    }
+
+    @Bean
+    Binding notificacionesRetryBinding(DirectExchange dlx, Queue notificacionesRetryQueue) {
+        return BindingBuilder.bind(notificacionesRetryQueue).to(dlx).with(NOTIFICACIONES_RETRY_ROUTING_KEY);
     }
 
     @Bean
@@ -106,11 +147,28 @@ public class RabbitMQConfig {
         return BindingBuilder.bind(cocinaRetryQueue).to(dlx).with(COCINA_RETRY_ROUTING_KEY);
     }
 
-    // Cola final: aquí quedan los mensajes que fallaron demasiadas veces.
-    // No tiene reintentos ni TTL — es solo para inspección manual (management UI).
+    @Bean
+    Binding despachoRetryBinding(DirectExchange dlx, Queue despachoRetryQueue) {
+        return BindingBuilder.bind(despachoRetryQueue).to(dlx).with(DESPACHO_RETRY_ROUTING_KEY);
+    }
+
+    // ===== Colas finales (DLQ) =====
+    // Aquí quedan los mensajes que fallaron demasiadas veces. No tienen
+    // reintentos ni TTL — solo inspección manual (management UI).
+
+    @Bean
+    Queue notificacionesDlq() {
+        return new Queue(NOTIFICACIONES_DLQ, true);
+    }
+
     @Bean
     Queue cocinaDlq() {
         return new Queue(COCINA_DLQ, true);
+    }
+
+    @Bean
+    Queue despachoDlq() {
+        return new Queue(DESPACHO_DLQ, true);
     }
 
     // ===== Topic Exchange: demuestra routing con wildcard =====
@@ -125,8 +183,6 @@ public class RabbitMQConfig {
         return new Queue(AUDITORIA, true);
     }
 
-    // Una sola binding con wildcard reemplaza lo que en el Direct Exchange
-    // necesitó 3 bindings distintas (una por cada routing key exacta).
     @Bean
     Binding auditoriaBinding(TopicExchange auditoriaExchange, Queue auditoriaQueue) {
         return BindingBuilder.bind(auditoriaQueue).to(auditoriaExchange).with(AUDITORIA_PATTERN);

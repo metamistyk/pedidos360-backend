@@ -15,7 +15,7 @@ import java.util.Map;
 @Component
 public class Consumers {
 
-    // Máximo de veces que se reintenta "cocina" antes de mandarlo a la DLQ.
+    // Máximo de veces que se reintenta un mensaje antes de mandarlo a su DLQ.
     private static final int MAX_REINTENTOS = 3;
 
     private final RabbitTemplate rabbitTemplate;
@@ -29,58 +29,74 @@ public class Consumers {
     // nunca lo da por recibido y se reencola sin fin al reiniciar el consumer.
 
     @RabbitListener(queues = RabbitMQConfig.NOTIFICACIONES)
-    public void notificar(String eventoJson, Channel channel,
+    public void notificar(Message mensaje, Channel channel,
                            @Header(AmqpHeaders.DELIVERY_TAG) long tag) throws IOException {
-        System.out.println("[NOTIFICACIÓN] " + eventoJson);
-        channel.basicAck(tag, false);
+        procesarConReintento(
+            mensaje, channel, tag,
+            "NOTIFICACIÓN",
+            RabbitMQConfig.NOTIFICACIONES_DLQ
+        );
     }
 
     @RabbitListener(queues = RabbitMQConfig.COCINA)
     public void imprimirTicket(Message mensaje, Channel channel,
                                 @Header(AmqpHeaders.DELIVERY_TAG) long tag) throws IOException {
-        String eventoJson = new String(mensaje.getBody());
-        try {
-            // --- Simulación de fallo para probar el flujo de reintentos/DLQ ---
-            // Descomenta esta línea, crea un pedido y acéptalo para ver cocina.queue
-            // fallar 3 veces (una cada 5s) y terminar en cocina.dlq:
-            // if (true) throw new RuntimeException("Impresora de cocina no responde");
-
-            System.out.println("[COCINA] " + eventoJson);
-            channel.basicAck(tag, false);
-
-        } catch (Exception ex) {
-            int reintentos = contarReintentos(mensaje);
-            System.out.println("[COCINA][ERROR] intento " + (reintentos + 1) + " de " + MAX_REINTENTOS
-                + " — " + ex.getMessage());
-
-            if (reintentos < MAX_REINTENTOS) {
-                // NACK sin reencolar en la misma cola: por la configuración de
-                // cocina.queue, RabbitMQ lo manda a la DLX -> cocina.retry.queue,
-                // espera 5s (TTL) y lo devuelve solo a cocina.queue.
-                channel.basicNack(tag, false, false);
-            } else {
-                System.out.println("[COCINA][DLQ] se superaron los reintentos, moviendo a " + RabbitMQConfig.COCINA_DLQ);
-                rabbitTemplate.convertAndSend("", RabbitMQConfig.COCINA_DLQ, eventoJson);
-                channel.basicAck(tag, false); // saca el mensaje de cocina.queue definitivamente
-            }
-        }
+        procesarConReintento(
+            mensaje, channel, tag,
+            "COCINA",
+            RabbitMQConfig.COCINA_DLQ
+        );
     }
 
     @RabbitListener(queues = RabbitMQConfig.DESPACHO)
-    public void notificarDespacho(String eventoJson, Channel channel,
+    public void notificarDespacho(Message mensaje, Channel channel,
                                     @Header(AmqpHeaders.DELIVERY_TAG) long tag) throws IOException {
-        System.out.println("[DESPACHO] " + eventoJson);
-        channel.basicAck(tag, false);
+        procesarConReintento(
+            mensaje, channel, tag,
+            "DESPACHO",
+            RabbitMQConfig.DESPACHO_DLQ
+        );
     }
 
     // Llega aquí TODO evento cuya routing key empiece con "pedido." (creado,
-    // aceptado, despachado), gracias al wildcard del Topic Exchange — sin
-    // necesitar una binding exacta por cada uno, como en el Direct Exchange.
+    // aceptado, despachado, cancelado), gracias al wildcard del Topic Exchange
+    // — sin necesitar una binding exacta por cada uno, como en el Direct Exchange.
     @RabbitListener(queues = RabbitMQConfig.AUDITORIA)
     public void auditar(String eventoJson, Channel channel,
                          @Header(AmqpHeaders.DELIVERY_TAG) long tag) throws IOException {
         System.out.println("[AUDITORÍA] " + eventoJson);
         channel.basicAck(tag, false);
+    }
+
+    // Lógica común de ACK/NACK + reintento + DLQ, reutilizada por los 3
+    // consumers de negocio (notificaciones, cocina, despacho).
+    private void procesarConReintento(Message mensaje, Channel channel, long tag,
+                                       String etiqueta, String dlq) throws IOException {
+        String eventoJson = new String(mensaje.getBody());
+        try {
+            // --- Simulación de fallo para probar el flujo de reintentos/DLQ ---
+            // Descomenta esta línea en el consumer que quieras probar:
+            // if (true) throw new RuntimeException(etiqueta + " no responde");
+
+            System.out.println("[" + etiqueta + "] " + eventoJson);
+            channel.basicAck(tag, false);
+
+        } catch (Exception ex) {
+            int reintentos = contarReintentos(mensaje);
+            System.out.println("[" + etiqueta + "][ERROR] intento " + (reintentos + 1) + " de " + MAX_REINTENTOS
+                + " — " + ex.getMessage());
+
+            if (reintentos < MAX_REINTENTOS) {
+                // NACK sin reencolar en la misma cola: por la configuración de
+                // la cola, RabbitMQ lo manda a la DLX -> su cola de retry,
+                // espera 5s (TTL) y lo devuelve solo a la cola original.
+                channel.basicNack(tag, false, false);
+            } else {
+                System.out.println("[" + etiqueta + "][DLQ] se superaron los reintentos, moviendo a " + dlq);
+                rabbitTemplate.convertAndSend("", dlq, eventoJson);
+                channel.basicAck(tag, false); // saca el mensaje de la cola original definitivamente
+            }
+        }
     }
 
     // RabbitMQ agrega el header "x-death" cada vez que un mensaje pasa por una
