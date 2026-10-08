@@ -103,11 +103,18 @@ public class PedidoService {
         pedido.setEstado(nuevoEstado);
         Pedido guardado = pedidoRepository.save(pedido);
 
-        // Publicar evento solo para los estados relevantes para notificaciones/cocina/despacho.
+        // Publicar evento para los estados relevantes para notificaciones/cocina/despacho.
         if (nuevoEstado == EstadoPedido.ACEPTADO) {
             publicarEvento("pedido.aceptado", guardado);
         } else if (nuevoEstado == EstadoPedido.DESPACHADO) {
             publicarEvento("pedido.despachado", guardado);
+        } else if (nuevoEstado == EstadoPedido.CANCELADO) {
+            // "pedido.cancelado" no tiene ninguna binding en el Direct Exchange,
+            // así que ahí se pierde silenciosamente (nadie lo recibe). Pero SÍ
+            // lo captura el Topic Exchange por el wildcard "pedido.*" -> llega
+            // a auditoria.queue igual. Es el ejemplo real de la diferencia
+            // Direct vs Topic frente a una routing key sin binding exacta.
+            publicarEvento("pedido.cancelado", guardado);
         }
 
         return guardado;
