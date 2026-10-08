@@ -18,11 +18,17 @@ public class PedidoEventoProducer {
 
     public void publicar(String routingKey, PedidoEvento evento) {
         try {
-            rabbitTemplate.convertAndSend(
-                RabbitMQConfig.EXCHANGE,
-                routingKey,
-                objectMapper.writeValueAsString(evento)
-            );
+            String payload = objectMapper.writeValueAsString(evento);
+
+            // Exchange de negocio (Direct): la routing key exacta decide a qué
+            // cola(s) llega — notificaciones.queue, cocina.queue o despacho.queue.
+            rabbitTemplate.convertAndSend(RabbitMQConfig.EXCHANGE, routingKey, payload);
+
+            // Exchange de auditoría (Topic): una sola binding con wildcard
+            // ("pedido.*") capta cualquier routing key que empiece con "pedido."
+            // sin tener que declarar una binding por cada tipo de evento.
+            rabbitTemplate.convertAndSend(RabbitMQConfig.TOPIC_EXCHANGE, routingKey, payload);
+
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("No fue posible serializar el evento", e);
         }

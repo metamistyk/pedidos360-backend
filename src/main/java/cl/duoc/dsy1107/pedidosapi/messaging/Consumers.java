@@ -73,6 +73,16 @@ public class Consumers {
         channel.basicAck(tag, false);
     }
 
+    // Llega aquí TODO evento cuya routing key empiece con "pedido." (creado,
+    // aceptado, despachado), gracias al wildcard del Topic Exchange — sin
+    // necesitar una binding exacta por cada uno, como en el Direct Exchange.
+    @RabbitListener(queues = RabbitMQConfig.AUDITORIA)
+    public void auditar(String eventoJson, Channel channel,
+                         @Header(AmqpHeaders.DELIVERY_TAG) long tag) throws IOException {
+        System.out.println("[AUDITORÍA] " + eventoJson);
+        channel.basicAck(tag, false);
+    }
+
     // RabbitMQ agrega el header "x-death" cada vez que un mensaje pasa por una
     // dead-letter-exchange. Ahí viaja un contador "count" por cada ciclo.
     @SuppressWarnings("unchecked")

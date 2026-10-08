@@ -5,6 +5,7 @@ import org.springframework.amqp.core.BindingBuilder;
 import org.springframework.amqp.core.DirectExchange;
 import org.springframework.amqp.core.Queue;
 import org.springframework.amqp.core.QueueBuilder;
+import org.springframework.amqp.core.TopicExchange;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -22,6 +23,14 @@ public class RabbitMQConfig {
     public static final String COCINA_RETRY_QUEUE = "cocina.retry.queue";
     public static final String COCINA_DLQ = "cocina.dlq";
     private static final int RETRY_TTL_MS = 5000;
+
+    // ===== Topic Exchange: una sola cola de auditoría para TODOS los eventos =====
+    public static final String TOPIC_EXCHANGE = "pedidos360.topic.exchange";
+    public static final String AUDITORIA = "auditoria.queue";
+    // "pedido.*" matchea pedido.creado / pedido.aceptado / pedido.despachado
+    // (un solo segmento después de "pedido."). NO matchearía algo como
+    // "pedido.item.agregado" (dos segmentos) — para eso haría falta "pedido.#".
+    public static final String AUDITORIA_PATTERN = "pedido.*";
 
     @Bean
     DirectExchange pedidosExchange() {
@@ -102,5 +111,24 @@ public class RabbitMQConfig {
     @Bean
     Queue cocinaDlq() {
         return new Queue(COCINA_DLQ, true);
+    }
+
+    // ===== Topic Exchange: demuestra routing con wildcard =====
+
+    @Bean
+    TopicExchange auditoriaExchange() {
+        return new TopicExchange(TOPIC_EXCHANGE, true, false);
+    }
+
+    @Bean
+    Queue auditoriaQueue() {
+        return new Queue(AUDITORIA, true);
+    }
+
+    // Una sola binding con wildcard reemplaza lo que en el Direct Exchange
+    // necesitó 3 bindings distintas (una por cada routing key exacta).
+    @Bean
+    Binding auditoriaBinding(TopicExchange auditoriaExchange, Queue auditoriaQueue) {
+        return BindingBuilder.bind(auditoriaQueue).to(auditoriaExchange).with(AUDITORIA_PATTERN);
     }
 }
