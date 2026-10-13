@@ -1,0 +1,87 @@
+# =============================================================================
+# Clúster RabbitMQ de 2 nodos (EP3/EP4 - Pedidos360) - mismo enfoque que Semana 10
+# (06A / doc. 05): los nodos arrancan separados y el segundo se UNE A MANO.
+#
+# Solo para el clúster (local o AWS). El docker-compose.yml de 1 nodo queda intacto.
+#
+# PASOS
+#  0. Copia .env.example a .env y cambia los valores (el .env NO se sube a GitHub):
+#       cp .env.example .env            (PowerShell: Copy-Item .env.example .env)
+#     Detén el RabbitMQ de 1 nodo si está corriendo (mismos puertos):
+#       docker compose down
+#  1. Levantar:
+#       docker compose -f docker-compose.cluster.yml up -d
+#       docker exec pedidos360-rabbit1 rabbitmqctl await_startup
+#       docker exec pedidos360-rabbit2 rabbitmqctl await_startup
+#  2. Unir rabbit2 a rabbit1 (SOLO la primera vez, EN ESTE ORDEN):
+#       docker exec pedidos360-rabbit2 rabbitmqctl stop_app
+#       docker exec pedidos360-rabbit2 rabbitmqctl reset
+#       docker exec pedidos360-rabbit2 rabbitmqctl join_cluster rabbit@rabbit1
+#       docker exec pedidos360-rabbit2 rabbitmqctl start_app
+#  3. Verificar [EP4-02]: running_nodes debe traer rabbit@rabbit1 y rabbit@rabbit2
+#       docker exec pedidos360-rabbit1 rabbitmqctl cluster_status
+#       docker exec pedidos360-rabbit2 rabbitmqctl cluster_status
+#     UI: http://<host>:15672 (rabbit1) y http://<host>:15673 (rabbit2)
+#  4. Backend contra el clúster (sin tocar código), variables de entorno:
+#       RABBITMQ_HOST=<host de rabbit1>  RABBITMQ_USER=<del .env>  RABBITMQ_PASS=<del .env>
+#     Al arrancar declara colas, exchanges y DLQ.
+#  5. Política de retención SOLO en las 3 colas principales (TTL 120000 ms,
+#     max-length 200). NUNCA en *.retry ni *.dlq ni auditoria.queue [EP4-11]:
+#       bash:
+#         docker exec pedidos360-rabbit1 rabbitmqctl set_policy --apply-to queues pedidos360-principales '^(notificaciones|cocina|despacho)\.queue$' '{"message-ttl":120000,"max-length":200}'
+#       PowerShell:
+#         docker exec pedidos360-rabbit1 rabbitmqctl set_policy --apply-to queues pedidos360-principales '^(notificaciones|cocina|despacho)\.queue$' '{\"message-ttl\":120000,\"max-length\":200}'
+#       Ver:  docker exec pedidos360-rabbit1 rabbitmqctl list_policies
+#  6. Monitor (Management API):  python monitor/monitor_queues.py --una-vez
+#
+# AVISOS
+#  - NO repetir el paso 2 (tiene "reset") si el clúster ya funciona con datos.
+#    Reinicio normal: docker compose -f docker-compose.cluster.yml up -d
+#  - NO usar "down -v" salvo para reiniciar de cero (borra colas y datos).
+#  - Clúster NO es replicación: las colas clásicas viven en un solo nodo.
+#  - AWS: Security Group con 22 y 15672 (y 15673 si la quieres) solo desde tu IP;
+#    5672 solo si el backend corre en otra máquina.
+# =============================================================================
+
+services:
+  rabbit1:
+    image: rabbitmq:4-management
+    hostname: rabbit1
+    container_name: pedidos360-rabbit1
+    environment:
+      RABBITMQ_NODENAME: rabbit@rabbit1
+      RABBITMQ_ERLANG_COOKIE: ${RABBITMQ_ERLANG_COOKIE}
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS}
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - pedidos360_nodo1:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  rabbit2:
+    image: rabbitmq:4-management
+    hostname: rabbit2
+    container_name: pedidos360-rabbit2
+    depends_on:
+      rabbit1:
+        condition: service_healthy
+    environment:
+      RABBITMQ_NODENAME: rabbit@rabbit2
+      RABBITMQ_ERLANG_COOKIE: ${RABBITMQ_ERLANG_COOKIE}
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS}
+    ports:
+      - "5673:5672"
+      - "15673:15672"
+    volumes:
+      - pedidos360_nodo2:/var/lib/rabbitmq
+
+volumes:
+  pedidos360_nodo1:
+  pedidos360_nodo2:
