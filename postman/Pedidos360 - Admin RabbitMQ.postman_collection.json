@@ -1,0 +1,254 @@
+{
+  "info": {
+    "_postman_id": "319146ff-60b9-47b8-a1b0-e4fa9d8984f1",
+    "name": "Pedidos360 - Admin RabbitMQ",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "45498397"
+  },
+  "item": [
+    {
+      "name": "Crear Queue",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"nombre\": \"prueba.queue\",\n  \"durable\": true\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/admin/queues",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "admin",
+            "queues"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Eliminar Queue",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/admin/queues/prueba.queue",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "admin",
+            "queues",
+            "prueba.queue"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Crear Exchange",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"nombre\": \"prueba.exchange\",\n  \"tipo\": \"direct\",\n  \"durable\": true\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/admin/exchanges",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "admin",
+            "exchanges"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Eliminar Exchange",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/admin/exchanges/prueba.exchange",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "admin",
+            "exchanges",
+            "prueba.exchange"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Crear Binding",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"exchange\": \"prueba.exchange\",\n    \"queue\": \"prueba.queue\",\n    \"routingKey\": \"prueba.key\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/admin/bindings",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "admin",
+            "bindings"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Validacion - nombre vacio (debe dar 400)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"nombre\": \"\",\n  \"durable\": true\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/admin/queues",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "admin",
+            "queues"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Validacion - tipo exchange invalido (debe dar 400)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"nombre\": \"prueba.exchange\",\n  \"tipo\": \"headers\",\n  \"durable\": true\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/admin/exchanges",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "admin",
+            "exchanges"
+          ]
+        }
+      },
+      "response": []
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "requests": {},
+        "exec": [
+          ""
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "requests": {},
+        "exec": [
+          ""
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "token",
+      "value": "PEGA_AQUI_TU_ACCESS_TOKEN"
+    }
+  ]
+}
