@@ -5,6 +5,7 @@ import org.springframework.amqp.core.Message;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.amqp.support.AmqpHeaders;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
 
@@ -15,13 +16,21 @@ import java.util.Map;
 @Component
 public class Consumers {
 
-    // Máximo de veces que se reintenta un mensaje antes de mandarlo a su DLQ.
-    private static final int MAX_REINTENTOS = 3;
+    // Máximo de intentos por mensaje (el inicial + 2 reintentos) antes de
+    // mandarlo a su DLQ.
+    private static final int MAX_INTENTOS = 3;
 
     private final RabbitTemplate rabbitTemplate;
 
-    public Consumers(RabbitTemplate rabbitTemplate) {
+    // Para demostrar reintentos y DLQ sin tocar el código: arrancar el backend
+    // con la variable de entorno PEDIDOS360_SIMULAR_FALLO_NOTIFICACIONES=true
+    // y el consumer de notificaciones fallará siempre. Por defecto: false.
+    private final boolean simularFalloNotificaciones;
+
+    public Consumers(RabbitTemplate rabbitTemplate,
+                     @Value("${pedidos360.simular-fallo-notificaciones:false}") boolean simularFalloNotificaciones) {
         this.rabbitTemplate = rabbitTemplate;
+        this.simularFalloNotificaciones = simularFalloNotificaciones;
     }
 
     // Con ackMode=manual (ver application.properties), TODO listener debe
@@ -74,25 +83,26 @@ public class Consumers {
                                        String etiqueta, String dlq) throws IOException {
         String eventoJson = new String(mensaje.getBody());
         try {
-            // --- Simulación de fallo para probar el flujo de reintentos/DLQ ---
-            // Descomenta esta línea en el consumer que quieras probar:
-            // if (true) throw new RuntimeException(etiqueta + " no responde");
+            // --- Simulación de fallo (solo notificaciones, solo si se activa) ---
+            if (simularFalloNotificaciones && dlq.equals(RabbitMQConfig.NOTIFICACIONES_DLQ)) {
+                throw new RuntimeException(etiqueta + " no responde");
+            }
 
             System.out.println("[" + etiqueta + "] " + eventoJson);
             channel.basicAck(tag, false);
 
         } catch (Exception ex) {
-            int reintentos = contarReintentos(mensaje);
-            System.out.println("[" + etiqueta + "][ERROR] intento " + (reintentos + 1) + " de " + MAX_REINTENTOS
+            int intento = contarReintentos(mensaje) + 1;
+            System.out.println("[" + etiqueta + "][ERROR] intento " + intento + " de " + MAX_INTENTOS
                 + " — " + ex.getMessage());
 
-            if (reintentos < MAX_REINTENTOS) {
+            if (intento < MAX_INTENTOS) {
                 // NACK sin reencolar en la misma cola: por la configuración de
                 // la cola, RabbitMQ lo manda a la DLX -> su cola de retry,
                 // espera 5s (TTL) y lo devuelve solo a la cola original.
                 channel.basicNack(tag, false, false);
             } else {
-                System.out.println("[" + etiqueta + "][DLQ] se superaron los reintentos, moviendo a " + dlq);
+                System.out.println("[" + etiqueta + "][DLQ] se agotaron los intentos, moviendo a " + dlq);
                 rabbitTemplate.convertAndSend("", dlq, eventoJson);
                 channel.basicAck(tag, false); // saca el mensaje de la cola original definitivamente
             }

@@ -99,6 +99,24 @@ public class RabbitMQConfig {
         return BindingBuilder.bind(despachoQueue).to(pedidosExchange).with("pedido.despachado");
     }
 
+    // Bindings de "vuelta" de los reintentos: el mensaje que sale de la cola
+    // retry regresa a EXCHANGE con la key "<dominio>.retry" y llega a su cola.
+
+    @Bean
+    Binding notificacionesRetryReturn(DirectExchange pedidosExchange, Queue notificacionesQueue) {
+        return BindingBuilder.bind(notificacionesQueue).to(pedidosExchange).with(NOTIFICACIONES_RETRY_ROUTING_KEY);
+    }
+
+    @Bean
+    Binding cocinaRetryReturn(DirectExchange pedidosExchange, Queue cocinaQueue) {
+        return BindingBuilder.bind(cocinaQueue).to(pedidosExchange).with(COCINA_RETRY_ROUTING_KEY);
+    }
+
+    @Bean
+    Binding despachoRetryReturn(DirectExchange pedidosExchange, Queue despachoQueue) {
+        return BindingBuilder.bind(despachoQueue).to(pedidosExchange).with(DESPACHO_RETRY_ROUTING_KEY);
+    }
+
     // ===== DLX compartida =====
 
     @Bean
@@ -110,8 +128,10 @@ public class RabbitMQConfig {
     // Nadie las consume. Cuando un mensaje lleva 5s ahí, RabbitMQ lo expulsa
     // automáticamente (TTL) y, por su propia dead-letter-config, lo devuelve
     // al exchange original. Como NO fijamos "x-dead-letter-routing-key" aquí,
-    // RabbitMQ reutiliza la routing key ORIGINAL del mensaje (necesario para
-    // notificaciones.queue, que recibe 3 routing keys distintas).
+    // el mensaje vuelve con la routing key "<dominio>.retry" (la que le puso la
+    // cola de negocio al ir a la DLX). Por eso más abajo cada cola de negocio
+    // tiene también una binding con esa key: sin ella el mensaje volvería a un
+    // exchange sin ruta y se perdería en silencio.
 
     @Bean
     Queue notificacionesRetryQueue() {
