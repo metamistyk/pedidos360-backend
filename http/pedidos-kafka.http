@@ -1,0 +1,107 @@
+# Pruebas de la API: pedidos (productor Kafka) y administración de Kafka.
+# Se ejecutan dentro de VS Code con la extensión "REST Client" (humao.rest-client):
+# aparece un enlace "Send Request" sobre cada petición.
+#
+# El token NO va en este archivo. Se lee de http/.env (ignorado por git):
+#   ACCESS_TOKEN=<token de Entra ID con rol Admin>
+# Copia http/.env.example a http/.env y pega el token ahí (dura ~1 hora).
+
+@baseUrl = http://localhost:8080
+@token = {{$dotenv ACCESS_TOKEN}}
+
+### 1. Crear producto (Admin). La BD local H2 parte vacía.
+POST {{baseUrl}}/api/catalog/products
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "nombre": "Pizza",
+  "precio": 5990,
+  "stock": 100
+}
+
+### 2. Crear pedido -> evento PEDIDO_CREADO en pedidos.eventos
+POST {{baseUrl}}/api/orders
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "items": [
+    { "productoId": 1, "cantidad": 2 }
+  ]
+}
+
+### 3. Aceptar pedido -> PEDIDO_ACEPTADO (pedidos.eventos) + STOCK_DESCONTADO (inventario.eventos)
+PUT {{baseUrl}}/api/orders/1/status
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "nuevoEstado": "ACEPTADO"
+}
+
+### 4. Pasar a EN_PREPARACION
+PUT {{baseUrl}}/api/orders/1/status
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "nuevoEstado": "EN_PREPARACION"
+}
+
+### 5. Despachar pedido
+PUT {{baseUrl}}/api/orders/1/status
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "nuevoEstado": "DESPACHADO"
+}
+
+### K1. Listar tópicos
+GET {{baseUrl}}/api/kafka-admin/topics
+Authorization: Bearer {{token}}
+
+### K2. Describir pedidos.eventos (particiones, líder, réplicas, ISR)
+GET {{baseUrl}}/api/kafka-admin/topics/pedidos.eventos
+Authorization: Bearer {{token}}
+
+### K3. Crear tópico prueba.kafka
+POST {{baseUrl}}/api/kafka-admin/topics
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "nombre": "prueba.kafka",
+  "particiones": 3,
+  "factorReplicacion": 3,
+  "retencionMs": 3600000
+}
+
+### K4. Cambiar retención de prueba.kafka
+PUT {{baseUrl}}/api/kafka-admin/topics/prueba.kafka/retention
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "retencionMs": 7200000
+}
+
+### K5. Eliminar prueba.kafka
+DELETE {{baseUrl}}/api/kafka-admin/topics/prueba.kafka
+Authorization: Bearer {{token}}
+
+### K6. Listar consumer groups
+GET {{baseUrl}}/api/kafka-admin/groups
+Authorization: Bearer {{token}}
+
+### K7. Validación: particiones 0 (debe responder 400)
+POST {{baseUrl}}/api/kafka-admin/topics
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "nombre": "prueba.mala",
+  "particiones": 0,
+  "factorReplicacion": 3
+}

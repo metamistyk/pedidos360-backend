@@ -3,6 +3,7 @@ package cl.duoc.dsy1107.pedidosapi.service;
 import cl.duoc.dsy1107.pedidosapi.domain.*;
 import cl.duoc.dsy1107.pedidosapi.dto.CrearPedidoRequest;
 import cl.duoc.dsy1107.pedidosapi.dto.ItemRequest;
+import cl.duoc.dsy1107.pedidosapi.kafka.PedidoKafkaProducer;
 import cl.duoc.dsy1107.pedidosapi.messaging.PedidoEvento;
 import cl.duoc.dsy1107.pedidosapi.messaging.PedidoEventoProducer;
 import cl.duoc.dsy1107.pedidosapi.repository.PedidoRepository;
@@ -20,6 +21,7 @@ public class PedidoService {
     private final PedidoRepository pedidoRepository;
     private final ProductoRepository productoRepository;
     private final PedidoEventoProducer eventoProducer;
+    private final PedidoKafkaProducer kafkaProducer;
 
     // Mapa de transiciones válidas: desde cada estado, a qué estados se puede avanzar.
     private static final Map<EstadoPedido, Set<EstadoPedido>> TRANSICIONES = Map.of(
@@ -32,10 +34,11 @@ public class PedidoService {
     );
 
     public PedidoService(PedidoRepository pedidoRepository, ProductoRepository productoRepository,
-                          PedidoEventoProducer eventoProducer) {
+                          PedidoEventoProducer eventoProducer, PedidoKafkaProducer kafkaProducer) {
         this.pedidoRepository = pedidoRepository;
         this.productoRepository = productoRepository;
         this.eventoProducer = eventoProducer;
+        this.kafkaProducer = kafkaProducer;
     }
 
     public Pedido crear(String clienteId, CrearPedidoRequest request) {
@@ -51,6 +54,9 @@ public class PedidoService {
 
         Pedido guardado = pedidoRepository.save(pedido);
         publicarEvento("pedido.creado", guardado);
+
+        // Kafka (complementa a RabbitMQ): registro del evento en pedidos.eventos.
+        kafkaProducer.publicarPedido("PEDIDO_CREADO", guardado);
         return guardado;
     }
 
@@ -115,6 +121,17 @@ public class PedidoService {
             // a auditoria.queue igual. Es el ejemplo real de la diferencia
             // Direct vs Topic frente a una routing key sin binding exacta.
             publicarEvento("pedido.cancelado", guardado);
+        }
+
+        // Kafka: a diferencia de RabbitMQ (que solo publica los estados que
+        // alguien consume), el registro de eventos guarda TODOS los cambios de estado.
+        kafkaProducer.publicarPedido("PEDIDO_" + nuevoEstado.name(), guardado);
+
+        // Al aceptar se descontó stock: un evento por producto en inventario.eventos.
+        if (nuevoEstado == EstadoPedido.ACEPTADO) {
+            for (ItemPedido item : guardado.getItems()) {
+                kafkaProducer.publicarStockDescontado(guardado, item);
+            }
         }
 
         return guardado;
