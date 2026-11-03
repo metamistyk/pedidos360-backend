@@ -95,6 +95,30 @@ Authorization: Bearer {{token}}
 GET {{baseUrl}}/api/kafka-admin/groups
 Authorization: Bearer {{token}}
 
+### K6a. Lag del grupo de notificaciones (mensajes pendientes por partición)
+GET {{baseUrl}}/api/kafka-admin/groups/pedidos360-notificaciones/lag
+Authorization: Bearer {{token}}
+
+### K6b. Lag del grupo de analítica
+GET {{baseUrl}}/api/kafka-admin/groups/pedidos360-analitica/lag
+Authorization: Bearer {{token}}
+
+### K6c. Lag del grupo de inventario
+GET {{baseUrl}}/api/kafka-admin/groups/pedidos360-inventario/lag
+Authorization: Bearer {{token}}
+
+### K6d. Describir el tópico de errores
+GET {{baseUrl}}/api/kafka-admin/topics/pedidos360.errores
+Authorization: Bearer {{token}}
+
+### A1. Lo que calculó el consumidor de analítica (eventos, ingresos)
+GET {{baseUrl}}/api/analitica/pedidos
+Authorization: Bearer {{token}}
+
+### A2. Lo que calculó el consumidor de inventario (stock, alertas)
+GET {{baseUrl}}/api/analitica/inventario
+Authorization: Bearer {{token}}
+
 ### K7. Validación: particiones 0 (debe responder 400)
 POST {{baseUrl}}/api/kafka-admin/topics
 Authorization: Bearer {{token}}

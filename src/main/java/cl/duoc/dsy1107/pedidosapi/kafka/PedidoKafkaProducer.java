@@ -82,7 +82,7 @@ public class PedidoKafkaProducer {
             kafkaTemplate.send(topico, key, evento).whenComplete((resultado, error) -> {
                 if (error != null) {
                     System.out.println("[KAFKA][PRODUCER][ERROR] topico=" + topico
-                        + " key=" + key + " — " + error.getMessage());
+                        + " key=" + key + " - " + error.getMessage());
                 } else {
                     RecordMetadata meta = resultado.getRecordMetadata();
                     System.out.println("[KAFKA][PRODUCER] topico=" + meta.topic()
@@ -93,7 +93,7 @@ public class PedidoKafkaProducer {
             });
         } catch (Exception e) {
             // Kafka caído o sin metadatos: se registra y el pedido sigue su curso.
-            System.out.println("[KAFKA][PRODUCER][ERROR] no se pudo enviar a " + topico + " — " + e.getMessage());
+            System.out.println("[KAFKA][PRODUCER][ERROR] no se pudo enviar a " + topico + " - " + e.getMessage());
         }
     }
 }

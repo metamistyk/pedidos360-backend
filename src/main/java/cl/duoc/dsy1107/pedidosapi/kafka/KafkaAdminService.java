@@ -164,8 +164,10 @@ public class KafkaAdminService {
     public void eliminarTopic(String nombre) {
         validarNoVacio(nombre, "nombre del topico");
 
-        // Los dos tópicos del negocio no se pueden borrar desde la API.
-        if (KafkaTopics.PEDIDOS_EVENTOS.equals(nombre) || KafkaTopics.INVENTARIO_EVENTOS.equals(nombre)) {
+        // Los tópicos del negocio y el de errores no se pueden borrar desde la API.
+        if (KafkaTopics.PEDIDOS_EVENTOS.equals(nombre)
+                || KafkaTopics.INVENTARIO_EVENTOS.equals(nombre)
+                || KafkaTopics.ERRORES.equals(nombre)) {
             throw new IllegalArgumentException("El topico " + nombre + " esta protegido y no se puede eliminar");
         }
 
@@ -212,24 +214,36 @@ public class KafkaAdminService {
             Map<TopicPartition, OffsetAndMetadata> confirmados = admin.listConsumerGroupOffsets(grupo)
                 .partitionsToOffsetAndMetadata().get(TIMEOUT_SEG, TimeUnit.SECONDS);
 
-            Map<TopicPartition, OffsetSpec> pedido = new HashMap<>();
+            // Offset confirmado por partición. Una partición a la que el grupo
+            // aún no ha confirmado nada no aparece en listConsumerGroupOffsets,
+            // así que también se agregan las particiones que tiene ASIGNADAS
+            // (con confirmado 0) para ver las 3 particiones del tópico.
+            Map<TopicPartition, Long> confirmadoPorParticion = new HashMap<>();
             confirmados.forEach((tp, offset) -> {
                 if (offset != null) {
-                    pedido.put(tp, OffsetSpec.latest());
+                    confirmadoPorParticion.put(tp, offset.offset());
                 }
             });
 
-            if (pedido.isEmpty()) {
+            ConsumerGroupDescription descripcion = admin.describeConsumerGroups(List.of(grupo))
+                .describedGroups().get(grupo).get(TIMEOUT_SEG, TimeUnit.SECONDS);
+            descripcion.members().forEach(miembro ->
+                miembro.assignment().topicPartitions().forEach(tp -> confirmadoPorParticion.putIfAbsent(tp, 0L)));
+
+            if (confirmadoPorParticion.isEmpty()) {
                 return new LagGrupo(grupo, 0, List.of());
             }
+
+            Map<TopicPartition, OffsetSpec> pedido = new HashMap<>();
+            confirmadoPorParticion.keySet().forEach(tp -> pedido.put(tp, OffsetSpec.latest()));
 
             Map<TopicPartition, ListOffsetsResultInfo> finales = admin.listOffsets(pedido)
                 .all().get(TIMEOUT_SEG, TimeUnit.SECONDS);
 
-            List<LagDetalle> detalle = pedido.keySet().stream()
+            List<LagDetalle> detalle = confirmadoPorParticion.keySet().stream()
                 .sorted(Comparator.comparing(TopicPartition::topic).thenComparingInt(TopicPartition::partition))
                 .map(tp -> {
-                    long confirmado = confirmados.get(tp).offset();
+                    long confirmado = confirmadoPorParticion.get(tp);
                     long fin = finales.get(tp).offset();
                     return new LagDetalle(tp.topic(), tp.partition(), confirmado, fin, Math.max(0, fin - confirmado));
                 })

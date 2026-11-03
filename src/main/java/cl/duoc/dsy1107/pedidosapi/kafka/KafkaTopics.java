@@ -19,6 +19,13 @@ public final class KafkaTopics {
     /** Movimientos de stock por producto. Key = id del producto. */
     public static final String INVENTARIO_EVENTOS = "inventario.eventos";
 
+    /**
+     * Tópico auxiliar de errores (equivalente a la DLQ de RabbitMQ): recibe el
+     * mensaje que agotó sus reintentos en un consumidor, con el motivo del
+     * fallo. No es un tópico de negocio.
+     */
+    public static final String ERRORES = "pedidos360.errores";
+
     /** Particiones y réplicas exigidas por la pauta: 3 y 3. */
     public static final int PARTICIONES = 3;
     public static final int REPLICAS = 3;

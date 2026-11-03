@@ -24,17 +24,23 @@ public class KafkaTopicsConfig {
 
     @Bean
     NewTopic pedidosEventosTopic(@Value("${pedidos360.kafka.retention-ms:604800000}") long retencionMs) {
-        return TopicBuilder.name(KafkaTopics.PEDIDOS_EVENTOS)
-            .partitions(KafkaTopics.PARTICIONES)
-            .replicas(KafkaTopics.REPLICAS)
-            .config(TopicConfig.RETENTION_MS_CONFIG, String.valueOf(retencionMs))
-            .config(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG, "2")
-            .build();
+        return crear(KafkaTopics.PEDIDOS_EVENTOS, retencionMs);
     }
 
     @Bean
     NewTopic inventarioEventosTopic(@Value("${pedidos360.kafka.retention-ms:604800000}") long retencionMs) {
-        return TopicBuilder.name(KafkaTopics.INVENTARIO_EVENTOS)
+        return crear(KafkaTopics.INVENTARIO_EVENTOS, retencionMs);
+    }
+
+    /** Tópico de errores: mismas particiones/réplicas, así el mensaje fallido
+     *  conserva el número de partición de origen. */
+    @Bean
+    NewTopic erroresTopic(@Value("${pedidos360.kafka.retention-ms:604800000}") long retencionMs) {
+        return crear(KafkaTopics.ERRORES, retencionMs);
+    }
+
+    private NewTopic crear(String nombre, long retencionMs) {
+        return TopicBuilder.name(nombre)
             .partitions(KafkaTopics.PARTICIONES)
             .replicas(KafkaTopics.REPLICAS)
             .config(TopicConfig.RETENTION_MS_CONFIG, String.valueOf(retencionMs))
