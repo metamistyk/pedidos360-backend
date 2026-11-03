@@ -2,11 +2,12 @@
 # Se ejecutan dentro de VS Code con la extensión "REST Client" (humao.rest-client):
 # aparece un enlace "Send Request" sobre cada petición.
 #
-# El token NO va en este archivo. Se lee de http/.env (ignorado por git):
+# El token y la URL NO van en este archivo. Se leen de http/.env (ignorado por git):
 #   ACCESS_TOKEN=<token de Entra ID con rol Admin>
-# Copia http/.env.example a http/.env y pega el token ahí (dura ~1 hora).
+#   BASE_URL=http://localhost:8080         (local)  o  http://<IP pública del backend>:8080  (AWS)
+# Copia http/.env.example a http/.env y rellénalo (el token dura ~1 hora).
 
-@baseUrl = http://localhost:8080
+@baseUrl = {{$dotenv BASE_URL}}
 @token = {{$dotenv ACCESS_TOKEN}}
 
 ### 1. Crear producto (Admin). La BD local H2 parte vacía.
@@ -27,12 +28,12 @@ Content-Type: application/json
 
 {
   "items": [
-    { "productoId": 1, "cantidad": 2 }
+    { "productoId": 2, "cantidad": 2 }
   ]
 }
 
 ### 3. Aceptar pedido -> PEDIDO_ACEPTADO (pedidos.eventos) + STOCK_DESCONTADO (inventario.eventos)
-PUT {{baseUrl}}/api/orders/1/status
+PUT {{baseUrl}}/api/orders/7/status
 Authorization: Bearer {{token}}
 Content-Type: application/json
 
