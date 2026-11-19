@@ -92,6 +92,8 @@ docker exec pedidos360-zk1 zookeeper-shell localhost:2181 ls /brokers/ids
 - **Replicación:** factor 3 y `min.insync.replicas=2`; el productor usa `acks=all` + idempotencia.
 - **Retención:** 7 días por defecto (`retention.ms=604800000`, propiedad `pedidos360.kafka.retention-ms`),
   modificable en caliente (API o script).
+- **Cleanup policy:** `delete` (propiedad `pedidos360.kafka.cleanup-policy`): los mensajes se borran al cumplirse la
+  retención. No se usa `compact` porque cada evento es un hecho histórico que se puede releer, no un último valor por key.
 - Se declaran como beans `NewTopic` en `kafka/KafkaTopicsConfig.java`; Spring los crea al arrancar si no existen.
 
 ### Flujo
